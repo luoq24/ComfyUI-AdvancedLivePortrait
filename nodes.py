@@ -8,7 +8,7 @@ import folder_paths
 import comfy.utils
 import time
 import copy
-import dill
+import dill, json
 import yaml
 from ultralytics import YOLO
 
@@ -511,6 +511,23 @@ class ExpressionSet:
         self.t *= value
 
     #def apply_ratio(self, ratio):        self.exp *= ratio
+    def to_dict(self)-> dict:
+        return {
+            'exp': self.e.to('cpu').tolist(),
+            'rotation': self.r.to('cpu').tolist(),
+            'scale': self.s,
+            't': self.t
+        }
+
+    def from_dict(self, dict_erst: dict):
+        e_np = np.array(dict_erst['exp'], dtype=np.float32)
+        r_np = np.array(dict_erst['rotation'], dtype=np.float32)
+        
+        self.e = torch.from_numpy(e_np).float().to(get_device())
+        self.r = torch.from_numpy(r_np).float()
+        self.s = dict_erst['scale']
+        self.t = dict_erst['t']
+
 
 def logging_time(original_fn):
     def wrapper_fn(*args, **kwargs):
@@ -532,6 +549,7 @@ class SaveExpData:
     def INPUT_TYPES(s):
         return {"required": {
                 "file_name": ("STRING", {"multiline": False, "default": ""}),
+                "file_format": (["json", "dill"],),
             },
             "optional": {"save_exp": ("EXP_DATA",), }
         }
@@ -542,12 +560,16 @@ class SaveExpData:
     CATEGORY = "AdvancedLivePortrait"
     OUTPUT_NODE = True
 
-    def run(self, file_name, save_exp:ExpressionSet=None):
+    def run(self, file_name, file_format="json", save_exp:ExpressionSet=None):
         if save_exp == None or file_name == "":
             return file_name
 
-        with open(os.path.join(exp_data_dir, file_name + ".exp"), "wb") as f:
-            dill.dump(save_exp, f)
+        if file_format == "json":
+            with open(os.path.join(exp_data_dir, file_name + ".json"), "w") as f:
+                json.dump(save_exp.to_dict(), f, indent=4)
+        elif file_format == "dill":
+            with open(os.path.join(exp_data_dir, file_name + ".exp"), "wb") as f:
+                dill.dump(save_exp, f)
 
         return file_name
 
@@ -567,9 +589,32 @@ class LoadExpData:
     CATEGORY = "AdvancedLivePortrait"
 
     def run(self, file_name, ratio):
-        # es = ExpressionSet()
         with open(os.path.join(exp_data_dir, file_name + ".exp"), 'rb') as f:
             es = dill.load(f)
+        es.mul(ratio)
+        return (es,)
+
+class LoadExpDataJson:
+    @classmethod
+    def INPUT_TYPES(s):
+        file_list = [os.path.splitext(file)[0] for file in os.listdir(exp_data_dir) if file.endswith('.json')]
+        return {"required": {
+            "file_name": (sorted(file_list, key=str.lower),),
+            "ratio": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+        },
+        }
+
+    RETURN_TYPES = ("EXP_DATA",)
+    RETURN_NAMES = ("exp",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, file_name, ratio):
+        with open(os.path.join(exp_data_dir, file_name + ".json"), 'r') as f:
+            file_data = json.load(f)
+        es = ExpressionSet()
+        es.from_dict(file_data)
+
         es.mul(ratio)
         return (es,)
 
@@ -579,15 +624,15 @@ class ExpData:
         return {"required":{
                 #"code": ("STRING", {"multiline": False, "default": ""}),
                 "code1": ("INT", {"default": 0}),
-                "value1": ("FLOAT", {"default": 0, "min": -100, "max": 100, "step": 0.1}),
+                "value1": ("FLOAT", {"default": 0, "min": -500, "max": 500, "step": 0.1}),
                 "code2": ("INT", {"default": 0}),
-                "value2": ("FLOAT", {"default": 0, "min": -100, "max": 100, "step": 0.1}),
+                "value2": ("FLOAT", {"default": 0, "min": -500, "max": 500, "step": 0.1}),
                 "code3": ("INT", {"default": 0}),
-                "value3": ("FLOAT", {"default": 0, "min": -100, "max": 100, "step": 0.1}),
+                "value3": ("FLOAT", {"default": 0, "min": -500, "max": 500, "step": 0.1}),
                 "code4": ("INT", {"default": 0}),
-                "value4": ("FLOAT", {"default": 0, "min": -100, "max": 100, "step": 0.1}),
+                "value4": ("FLOAT", {"default": 0, "min": -500, "max": 500, "step": 0.1}),
                 "code5": ("INT", {"default": 0}),
-                "value5": ("FLOAT", {"default": 0, "min": -100, "max": 100, "step": 0.1}),
+                "value5": ("FLOAT", {"default": 0, "min": -500, "max": 500, "step": 0.1}),
             },
             "optional":{"add_exp": ("EXP_DATA",),}
         }
@@ -631,7 +676,9 @@ class PrintExpData:
         if exp == None: return (exp,)
 
         cuted_list = []
-        e = exp.exp * 1000
+        # luoq 尝试修复 exp-> e
+        # e = exp.exp * 1000
+        e = exp.e * 1000
         for idx in range(21):
             for r in range(3):
                 a = abs(e[0, idx, r])
@@ -647,8 +694,8 @@ class Command:
         self.change = change
         self.keep = keep
 
-crop_factor_default = 1.7
-crop_factor_min = 1.5
+crop_factor_default = 1.5
+crop_factor_min = 1.0
 crop_factor_max = 2.5
 
 class AdvancedLivePortrait:
@@ -676,6 +723,7 @@ class AdvancedLivePortrait:
                 "src_images": ("IMAGE",),
                 "motion_link": ("EDITOR_LINK",),
                 "driving_images": ("IMAGE",),
+                "driving_action": ("EXPA_DATA",),
             },
         }
 
@@ -724,7 +772,7 @@ class AdvancedLivePortrait:
 
 
     def run(self, retargeting_eyes, retargeting_mouth, turn_on, tracking_src_vid, animate_without_vid, command, crop_factor,
-            src_images=None, driving_images=None, motion_link=None):
+            src_images=None, driving_images=None, driving_action=None, motion_link=None):
         if turn_on == False: return (None,None)
         src_length = 1
 
@@ -753,6 +801,21 @@ class AdvancedLivePortrait:
             if id(driving_images) != id(self.driving_images):
                 self.driving_images = driving_images
                 self.driving_values = g_engine.prepare_driving_video(driving_images)
+            driving_length = len(self.driving_values)
+        elif driving_action is not None:
+            self.driving_images = None
+            self.driving_values = []
+            for exp_dict in driving_action:
+                kp_info = dict()
+                e_np = np.array(exp_dict['exp'], dtype=np.float32)
+                t_np = np.array(exp_dict['t'], dtype=np.float32)
+                kp_info['exp'] = torch.from_numpy(e_np).float().to(get_device())
+                kp_info['pitch'] = exp_dict['rotation'][0]
+                kp_info['yaw'] = exp_dict['rotation'][1]
+                kp_info['roll'] = exp_dict['rotation'][2]
+                kp_info['scale'] = exp_dict['scale']
+                kp_info['t'] = torch.from_numpy(t_np).float().to(get_device())
+                self.driving_values.append(kp_info)
             driving_length = len(self.driving_values)
 
         total_length = max(driving_length, src_length)
@@ -963,18 +1026,92 @@ class ExpressionEditor:
 
         return {"ui": {"images": results}, "result": (out_img, new_editor_link, es)}
 
+
+expa_data_dir = os.path.join(folder_paths.output_directory, "expa_data")
+if os.path.isdir(expa_data_dir) == False:
+    os.mkdir(expa_data_dir)
+class ExtractExpAction:
+    def __init__(self):
+        self.driving_images = None
+        self.driving_values = None
+
+    @classmethod
+    def INPUT_TYPES(s):
+
+        return {
+            "required": {
+                "driving_images": ("IMAGE",),
+                "file_name": ("STRING", {"multiline": False, "default": "expa_"}),
+            },
+            "optional": {
+            },
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "run"
+
+    OUTPUT_NODE = True
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, driving_images, file_name):
+        if id(driving_images) != id(self.driving_images):
+            self.driving_images = driving_images
+            self.driving_values = g_engine.prepare_driving_video(driving_images)
+
+        out = []
+        for drive in self.driving_values:
+            out.append({
+                "exp": drive['exp'].to('cpu').tolist(),
+                "rotation": [drive['pitch'].item(), drive['yaw'].item(), drive['roll'].item()],
+                "scale": drive['scale'].item(),
+                "t": drive['t'].to('cpu').tolist(),
+            })
+
+        with open(os.path.join(expa_data_dir, file_name + ".json"), "w") as f:
+            json.dump(out, f, indent=4)
+
+        return ()
+
+class LoadExpActionJson:
+    @classmethod
+    def INPUT_TYPES(s):
+        file_list = [os.path.splitext(file)[0] for file in os.listdir(expa_data_dir) if file.endswith('.json')]
+        return {"required": {
+            "file_name": (sorted(file_list, key=str.lower),),
+            "ratio": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+        },
+        }
+
+    RETURN_TYPES = ("EXPA_DATA",)
+    RETURN_NAMES = ("exp",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, file_name, ratio):
+        with open(os.path.join(expa_data_dir, file_name + ".json"), 'r') as f:
+            file_data = json.load(f)
+        
+        return (file_data,)
+
+
 NODE_CLASS_MAPPINGS = {
     "AdvancedLivePortrait": AdvancedLivePortrait,
     "ExpressionEditor": ExpressionEditor,
     "LoadExpData": LoadExpData,
+    "LoadExpDataJson": LoadExpDataJson,
     "SaveExpData": SaveExpData,
     "ExpData": ExpData,
     "PrintExpData:": PrintExpData,
+    "ExtractExpAction:": ExtractExpAction,
+    "LoadExpActionJson:": LoadExpActionJson,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "AdvancedLivePortrait": "Advanced Live Portrait (PHM)",
     "ExpressionEditor": "Expression Editor (PHM)",
     "LoadExpData": "Load Exp Data (PHM)",
-    "SaveExpData": "Save Exp Data (PHM)"
+    "LoadExpDataJson": "Load Exp Data.json (PHM.luoq)",
+    "SaveExpData": "Save Exp Data (PHM)",
+    "ExtractExpAction": "Extract Exp Action (PHM.luoq)",
+    "LoadExpActionJson": "Load Exp Action (PHM.luoq)",
 }
