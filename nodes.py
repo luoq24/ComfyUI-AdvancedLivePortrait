@@ -619,6 +619,29 @@ class LoadExpDataJson:
         es.mul(ratio)
         return (es,)
 
+class LoadExpDataString:
+    @classmethod
+    def INPUT_TYPES(s):
+        file_list = [os.path.splitext(file)[0] for file in os.listdir(exp_data_dir) if file.endswith('.json')]
+        return {"required": {
+            "text": ("STRING", {"default": '', "multiline": True}),
+            "ratio": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+        },
+        }
+
+    RETURN_TYPES = ("EXP_DATA",)
+    RETURN_NAMES = ("exp",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, text, ratio):        
+        text_data = json.loads(text)
+        es = ExpressionSet()
+        es.from_dict(text_data)
+
+        es.mul(ratio)
+        return (es,)
+
 class ExpData:
     @classmethod
     def INPUT_TYPES(s):
@@ -1026,7 +1049,7 @@ class ExpressionEditor:
 
         return {"ui": {"images": results}, "result": (out_img, new_editor_link, es)}
 
-
+# ========== 以下为 luoq 新增 =================
 expa_data_dir = os.path.join(folder_paths.output_directory, "expa_data")
 if os.path.isdir(expa_data_dir) == False:
     os.mkdir(expa_data_dir)
@@ -1087,7 +1110,9 @@ class LoadExpActionJson:
         file_list = [os.path.splitext(file)[0] for file in os.listdir(expa_data_dir) if file.endswith('.json')]
         return {"required": {
             "file_name": (sorted(file_list, key=str.lower),),
-            "ratio": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "rotation": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "mouth": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "eyes": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
         },
         }
 
@@ -1096,11 +1121,137 @@ class LoadExpActionJson:
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, file_name, ratio):
+    def run(self, file_name, rotation, mouth, eyes):
         with open(os.path.join(expa_data_dir, file_name + ".json"), 'r') as f:
             file_data = json.load(f)
+
+        for action_data in file_data:
+            # exp微调
+            for j in range(3):
+                    action_data['rotation'][j] *= rotation
+
+            for i in [14, 17, 19, 20]:
+                for j in range(3):
+                    action_data['exp'][0][i][j] *= mouth
+
+            for i in [1, 2, 11, 13, 15, 16]:
+                for j in range(3):
+                    action_data['exp'][0][i][j] *= eyes
         
         return (file_data,)
+
+class ExpressionVideoEditor:
+    def __init__(self):
+        self.src_images = None
+        self.driving_images = None
+        self.pbar = comfy.utils.ProgressBar(1)
+        self.crop_factor = None
+
+    @classmethod
+    def INPUT_TYPES(s):
+
+        return {
+            "required": {
+                "src_images": ("IMAGE",),
+                "crop_factor": ("FLOAT", {"default": crop_factor_default,
+                                          "min": crop_factor_min, "max": crop_factor_max, "step": 0.1}),                
+            },
+            "optional": {                
+                "driving_images": ("IMAGE",),
+                "driving_action": ("EXPA_DATA",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "run"
+    OUTPUT_NODE = True
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, src_images, crop_factor, driving_images=None, driving_action=None):
+        
+        src_length = len(src_images)
+        if id(src_images) != id(self.src_images) or self.crop_factor != crop_factor:
+            self.crop_factor = crop_factor
+            self.src_images = src_images
+            if 1 < src_length:
+                self.psi_list = g_engine.prepare_source(src_images, crop_factor, True)
+            else:
+                self.psi_list = [g_engine.prepare_source(src_images, crop_factor)]
+
+        driving_length = 0
+        if driving_images is not None:
+            if id(driving_images) != id(self.driving_images):
+                self.driving_images = driving_images
+                self.driving_values = g_engine.prepare_driving_video(driving_images)
+            driving_length = len(self.driving_values)
+        elif driving_action is not None:
+            self.driving_images = None
+            self.driving_values = []
+            for exp_dict in driving_action:
+                kp_info = dict()
+                e_np = np.array(exp_dict['exp'], dtype=np.float32)
+                t_np = np.array(exp_dict['t'], dtype=np.float32)
+                kp_info['exp'] = torch.from_numpy(e_np).float().to(get_device())
+                kp_info['pitch'] = exp_dict['rotation'][0]
+                kp_info['yaw'] = exp_dict['rotation'][1]
+                kp_info['roll'] = exp_dict['rotation'][2]
+                kp_info['scale'] = exp_dict['scale']
+                kp_info['t'] = torch.from_numpy(t_np).float().to(get_device())
+                self.driving_values.append(kp_info)
+            driving_length = len(self.driving_values)
+
+        final_length = min(driving_length, src_length)
+
+        # c_i_es = ExpressionSet()
+        # c_o_es = ExpressionSet()
+        d_0_es = None
+        out_list = []
+
+        psi = None
+        pipeline = g_engine.get_pipeline()
+        for i in range(final_length):
+            
+            psi = self.psi_list[i]
+            s_info = psi.x_s_info
+            s_es = ExpressionSet(erst=(s_info['kp'] + s_info['exp'], torch.Tensor([0, 0, 0]), s_info['scale'], s_info['t']))
+
+            new_es = ExpressionSet(es = s_es)    
+            
+            d_i_info = self.driving_values[i]
+            d_i_r = torch.Tensor([d_i_info['pitch'], d_i_info['yaw'], d_i_info['roll']])#.float().to(device="cuda:0")
+
+            if d_0_es is None:
+                # d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
+                # 修改思路。旋转的差量叠加，表情的直接替换
+                d_0_es = ExpressionSet(erst = (ExpressionSet().e, d_i_r, d_i_info['scale'], d_i_info['t']))
+
+                # retargeting(s_es.e, d_0_es.e, retargeting_eyes, (11, 13, 15, 16))
+                # retargeting(s_es.e, d_0_es.e, retargeting_mouth, (14, 17, 19, 20))
+
+            new_es.e += d_i_info['exp'] - d_0_es.e
+            new_es.r += d_i_r - d_0_es.r
+            new_es.t += d_i_info['t'] - d_0_es.t
+
+            r_new = get_rotation_matrix(
+                s_info['pitch'] + new_es.r[0], s_info['yaw'] + new_es.r[1], s_info['roll'] + new_es.r[2])
+            d_new = new_es.s * (new_es.e @ r_new) + new_es.t
+            d_new = pipeline.stitching(psi.x_s_user, d_new)
+            crop_out = pipeline.warp_decode(psi.f_s_user, psi.x_s_user, d_new)
+            crop_out = pipeline.parse_output(crop_out['out'])[0]
+
+            crop_with_fullsize = cv2.warpAffine(crop_out, psi.crop_trans_m, get_rgb_size(psi.src_rgb),
+                                                cv2.INTER_LINEAR)
+            out = np.clip(psi.mask_ori * crop_with_fullsize + (1 - psi.mask_ori) * psi.src_rgb, 0, 255).astype(
+                np.uint8)
+            out_list.append(out)
+
+            self.pbar.update_absolute(i+1, final_length, ("PNG", Image.fromarray(crop_out), None))
+
+        if len(out_list) == 0: return (None,)
+
+        out_imgs = torch.cat([pil2tensor(img_rgb) for img_rgb in out_list])
+        return (out_imgs,)
 
 
 NODE_CLASS_MAPPINGS = {
@@ -1108,11 +1259,13 @@ NODE_CLASS_MAPPINGS = {
     "ExpressionEditor": ExpressionEditor,
     "LoadExpData": LoadExpData,
     "LoadExpDataJson": LoadExpDataJson,
+    "LoadExpDataString": LoadExpDataString,
     "SaveExpData": SaveExpData,
     "ExpData": ExpData,
     "PrintExpData:": PrintExpData,
     "ExtractExpAction:": ExtractExpAction,
     "LoadExpActionJson:": LoadExpActionJson,
+    "ExpressionVideoEditor:": ExpressionVideoEditor,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1120,7 +1273,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ExpressionEditor": "Expression Editor (PHM)",
     "LoadExpData": "Load Exp Data (PHM)",
     "LoadExpDataJson": "Load Exp Data.json (PHM.luoq)",
+    "LoadExpDataString": "Load Exp Data.string (PHM.luoq)",
     "SaveExpData": "Save Exp Data (PHM)",
     "ExtractExpAction": "Extract Exp Action (PHM.luoq)",
     "LoadExpActionJson": "Load Exp Action (PHM.luoq)",
+    "ExpressionVideoEditor": "Expression Video Editor (PHM.luoq)",
 }
