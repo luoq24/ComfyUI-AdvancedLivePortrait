@@ -544,6 +544,7 @@ def logging_time(original_fn):
 exp_data_dir = os.path.join(folder_paths.output_directory, "exp_data")
 if os.path.isdir(exp_data_dir) == False:
     os.mkdir(exp_data_dir)
+
 class SaveExpData:
     @classmethod
     def INPUT_TYPES(s):
@@ -677,7 +678,6 @@ class PrintExpData:
 
         cuted_list = []
         # luoq 尝试修复 exp-> e
-        # e = exp.exp * 1000
         e = exp.e * 1000
         for idx in range(21):
             for r in range(3):
@@ -694,7 +694,7 @@ class Command:
         self.change = change
         self.keep = keep
 
-crop_factor_default = 1.5
+crop_factor_default = 1.7
 crop_factor_min = 1.0
 crop_factor_max = 2.5
 
@@ -1030,6 +1030,7 @@ class ExpressionEditor:
 expa_data_dir = os.path.join(folder_paths.output_directory, "expa_data")
 if os.path.isdir(expa_data_dir) == False:
     os.mkdir(expa_data_dir)
+
 class ExtractExpAction:
     def __init__(self):
         self.driving_images = None
@@ -1053,19 +1054,27 @@ class ExtractExpAction:
     OUTPUT_NODE = True
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, driving_images, file_name):
+    def run(self, driving_images, file_name):  
+
         if id(driving_images) != id(self.driving_images):
             self.driving_images = driving_images
-            self.driving_values = g_engine.prepare_driving_video(driving_images)
+
+        pipeline = g_engine.get_pipeline()
 
         out = []
-        for drive in self.driving_values:
-            out.append({
-                "exp": drive['exp'].to('cpu').tolist(),
-                "rotation": [drive['pitch'].item(), drive['yaw'].item(), drive['roll'].item()],
-                "scale": drive['scale'].item(),
-                "t": drive['t'].to('cpu').tolist(),
-            })
+        for sample_image in self.driving_images:            
+            drive = ExpressionSet()
+            
+            d_image_np = (sample_image * 255).byte().numpy()
+            d_face = g_engine.crop_face(d_image_np, 1.7)
+            i_d = g_engine.prepare_src_image(d_face)
+            ski = pipeline.get_kp_info(i_d)
+            ski['exp'][0, 5, 0] = 0
+            ski['exp'][0, 5, 1] = 0
+
+            drive.e += ski['exp']
+            drive.r = torch.Tensor([ski['pitch'], ski['yaw'], ski['roll']])
+            out.append(drive.to_dict())
 
         with open(os.path.join(expa_data_dir, file_name + ".json"), "w") as f:
             json.dump(out, f, indent=4)
