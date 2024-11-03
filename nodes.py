@@ -1096,7 +1096,9 @@ class ExtractExpAction:
             ski['exp'][0, 5, 1] = 0
 
             drive.e += ski['exp']
-            drive.r = torch.Tensor([ski['pitch'], ski['yaw'], ski['roll']])
+            # drive.r = torch.Tensor([ski['pitch'], ski['yaw'], ski['roll']])
+            drive.r = g_engine.calc_fe(ski['exp'], 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                        ski['pitch'], ski['yaw'], ski['roll'])
             out.append(drive.to_dict())
 
         with open(os.path.join(expa_data_dir, file_name + ".json"), "w") as f:
@@ -1110,6 +1112,8 @@ class LoadExpActionJson:
         file_list = [os.path.splitext(file)[0] for file in os.listdir(expa_data_dir) if file.endswith('.json')]
         return {"required": {
             "file_name": (sorted(file_list, key=str.lower),),
+            "frame_cap": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
             "rotation": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
             "mouth": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
             "eyes": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
@@ -1121,12 +1125,21 @@ class LoadExpActionJson:
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, file_name, rotation, mouth, eyes):
+    def run(self, file_name, frame_cap, start_index, rotation, mouth, eyes):
         with open(os.path.join(expa_data_dir, file_name + ".json"), 'r') as f:
             file_data = json.load(f)
 
-        for action_data in file_data:
-            # exp微调
+        if start_index >= len(file_data):
+            raise Exception('start_index to big!')
+
+        # 切片
+        if frame_cap == 0:
+            using_data = file_data[start_index:]
+        else:
+            using_data = file_data[start_index: start_index + frame_cap]
+
+        # exp微调
+        for action_data in using_data:
             for j in range(3):
                     action_data['rotation'][j] *= rotation
 
@@ -1138,7 +1151,7 @@ class LoadExpActionJson:
                 for j in range(3):
                     action_data['exp'][0][i][j] *= eyes
         
-        return (file_data,)
+        return (using_data,)
 
 class ExpressionVideoEditor:
     def __init__(self):
@@ -1149,10 +1162,12 @@ class ExpressionVideoEditor:
 
     @classmethod
     def INPUT_TYPES(s):
-
         return {
             "required": {
-                "src_images": ("IMAGE",),
+                "src_images": ("IMAGE",),                
+                "rotate_pitch": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
+                "rotate_yaw": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
+                "rotate_roll": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
                 "crop_factor": ("FLOAT", {"default": crop_factor_default,
                                           "min": crop_factor_min, "max": crop_factor_max, "step": 0.1}),                
             },
@@ -1168,7 +1183,7 @@ class ExpressionVideoEditor:
     OUTPUT_NODE = True
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, src_images, crop_factor, driving_images=None, driving_action=None):
+    def run(self, src_images, rotate_pitch, rotate_yaw, rotate_roll, crop_factor, driving_images=None, driving_action=None):
         
         src_length = len(src_images)
         if id(src_images) != id(self.src_images) or self.crop_factor != crop_factor:
@@ -1201,10 +1216,11 @@ class ExpressionVideoEditor:
                 self.driving_values.append(kp_info)
             driving_length = len(self.driving_values)
 
-        final_length = min(driving_length, src_length)
+        if src_length > driving_length:
+            raise Exception('src_images count < driving count, excute failed!')
 
-        # c_i_es = ExpressionSet()
-        # c_o_es = ExpressionSet()
+        final_length = driving_length
+
         d_0_es = None
         out_list = []
 
@@ -1212,7 +1228,8 @@ class ExpressionVideoEditor:
         pipeline = g_engine.get_pipeline()
         for i in range(final_length):
             
-            psi = self.psi_list[i]
+            i_src = i % src_length  # src_image 循环使用
+            psi = self.psi_list[i_src]
             s_info = psi.x_s_info
             s_es = ExpressionSet(erst=(s_info['kp'] + s_info['exp'], torch.Tensor([0, 0, 0]), s_info['scale'], s_info['t']))
 
@@ -1222,9 +1239,7 @@ class ExpressionVideoEditor:
             d_i_r = torch.Tensor([d_i_info['pitch'], d_i_info['yaw'], d_i_info['roll']])#.float().to(device="cuda:0")
 
             if d_0_es is None:
-                # d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
-                # 修改思路。旋转的差量叠加，表情的直接替换
-                d_0_es = ExpressionSet(erst = (ExpressionSet().e, d_i_r, d_i_info['scale'], d_i_info['t']))
+                d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
 
                 # retargeting(s_es.e, d_0_es.e, retargeting_eyes, (11, 13, 15, 16))
                 # retargeting(s_es.e, d_0_es.e, retargeting_mouth, (14, 17, 19, 20))
@@ -1234,7 +1249,10 @@ class ExpressionVideoEditor:
             new_es.t += d_i_info['t'] - d_0_es.t
 
             r_new = get_rotation_matrix(
-                s_info['pitch'] + new_es.r[0], s_info['yaw'] + new_es.r[1], s_info['roll'] + new_es.r[2])
+                s_info['pitch'] + new_es.r[0] + rotate_pitch,
+                s_info['yaw'] + new_es.r[1] + rotate_yaw, 
+                s_info['roll'] + new_es.r[2] + rotate_roll
+            )
             d_new = new_es.s * (new_es.e @ r_new) + new_es.t
             d_new = pipeline.stitching(psi.x_s_user, d_new)
             crop_out = pipeline.warp_decode(psi.f_s_user, psi.x_s_user, d_new)
