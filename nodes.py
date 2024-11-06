@@ -1096,9 +1096,9 @@ class ExtractExpAction:
             ski['exp'][0, 5, 1] = 0
 
             drive.e += ski['exp']
-            # drive.r = torch.Tensor([ski['pitch'], ski['yaw'], ski['roll']])
-            drive.r = g_engine.calc_fe(ski['exp'], 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        ski['pitch'], ski['yaw'], ski['roll'])
+            drive.r = torch.Tensor([ski['pitch'], ski['yaw'], ski['roll']])
+            # drive.r = g_engine.calc_fe(ski['exp'], 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            #                             ski['pitch'], ski['yaw'], ski['roll'])
             out.append(drive.to_dict())
 
         with open(os.path.join(expa_data_dir, file_name + ".json"), "w") as f:
@@ -1106,52 +1106,200 @@ class ExtractExpAction:
 
         return ()
 
+def ajust_action_data(action_data: dict, rotate_pitch: float, rotate_yaw: float, rotate_roll: float, edge: float, mouth: float, 
+                    eyes: float, other: float):
+    if rotate_pitch != 1.0:        
+        action_data['rotation'][0] *= rotate_pitch
+    if rotate_yaw != 1.0:        
+        action_data['rotation'][1] *= rotate_yaw
+    if rotate_roll != 1.0:        
+        action_data['rotation'][2] *= rotate_roll
+
+    def ajust_exp_in_list(co: float, exp_list: list[int]):
+        if co != 1.0:
+            for i in exp_list:
+                for j in range(3):
+                    action_data['exp'][0][i][j] *= co
+    
+    ajust_exp_in_list(edge, [0, 10, 3, 4, 7])
+    ajust_exp_in_list(mouth, [14, 17, 19, 20])
+    ajust_exp_in_list(eyes, [1, 2, 11, 13, 15, 16])
+    ajust_exp_in_list(other, [5, 6, 8, 9, 12, 18])    
+
+    # if blink_stength !=1.0:
+    #     # 上眼睑y
+    #     ajust_y(11, blink_stength, True)
+    #     ajust_y(15, blink_stength, True)        
+    #     # 下眼睑y
+    #     ajust_y(13, blink_stength, False)        
+    #     ajust_y(16, blink_stength, False)        
+
+
 class LoadExpActionJson:
     @classmethod
     def INPUT_TYPES(s):
-        file_list = [os.path.splitext(file)[0] for file in os.listdir(expa_data_dir) if file.endswith('.json')]
         return {"required": {
-            "file_name": (sorted(file_list, key=str.lower),),
+            "file_path": ("STRING", {"default": '', "multiline": False}),
             "frame_cap": ("INT", {"default": 0, "min": 0, "step": 1}),
             "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
-            "rotation": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "rotate_pitch": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "rotate_yaw": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "rotate_roll": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "face_edge": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
             "mouth": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
             "eyes": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "other": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "force_reload": ("BOOLEAN", {"default": False, "label_on": "yes", "label_off": "no"}),
         },
         }
 
-    RETURN_TYPES = ("EXPA_DATA",)
+    RETURN_TYPES = ("EXPA_DATA", "INT")
+    RETURN_NAMES = ("expa", "frame_count")
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+    file_path = ''
+    file_data = None
+
+    def run(self, file_path, frame_cap, start_index, rotate_pitch, rotate_yaw, rotate_roll, face_edge, 
+            mouth, eyes, other, force_reload):
+        if file_path != self.file_path or force_reload:
+            if not os.path.exists(file_path):
+                raise Exception('[LoadExpActionJson] wrong path file --> expa')
+
+            with open(file_path, 'r') as f:
+                self.file_data = json.load(f)
+
+        if start_index >= len(self.file_data):
+            raise Exception('start_index too big!')
+
+        # 切片
+        if frame_cap == 0:
+            using_data = self.file_data[start_index:]
+        else:
+            using_data = self.file_data[start_index: start_index + frame_cap]
+
+        # exp微调
+        for action_data in using_data:
+            ajust_action_data(action_data, rotate_pitch, rotate_yaw, rotate_roll, face_edge, mouth, eyes, other)
+
+        frame_count = len(using_data)
+        
+        return (using_data, frame_count)
+
+class LoadSingleExpOfAction:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "file_path": ("STRING", {"default": '', "multiline": False}),
+            "frame_index": ("INT", {"default": 0, "min": 0, "step": 1}),
+            "rotate_pitch": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "rotate_yaw": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "rotate_roll": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "face_edge": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "face_edge": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "mouth": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "eyes": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "other": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "force_reload": ("BOOLEAN", {"default": False, "label_on": "yes", "label_off": "no"}),
+        },
+        }
+
+    RETURN_TYPES = ("EXP_DATA", "STRING", "INT")
+    RETURN_NAMES = ("exp", "exp_string", "frame_count")
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+    file_path = ''
+    file_data = None
+
+    def run(self, file_path, frame_index, rotate_pitch, rotate_yaw, rotate_roll, face_edge, mouth, 
+            eyes, other, force_reload):
+        if file_path != self.file_path or force_reload:
+            if not os.path.exists(file_path):
+                raise Exception('[LoadSingleExpOfAction] wrong path file --> expa')
+
+            with open(file_path, 'r') as f:
+                self.file_data = json.load(f)
+
+        if frame_index >= len(self.file_data):
+            frame_index = len(self.file_data) - 1
+
+        action_data = self.file_data[frame_index]
+
+        # exp微调        
+        ajust_action_data(action_data, rotate_pitch, rotate_yaw, rotate_roll, face_edge, mouth, eyes, other)
+
+        es = ExpressionSet()
+        es.from_dict(action_data)
+
+        es_string = json.dumps(action_data, indent=4)
+
+        frame_count = len(self.file_data)
+        
+        return (es, es_string, frame_count)
+
+# default_ajust_exp_list = [
+#     (11, 1, 1.3, True, '上眼睑y'),
+#     (15, 1, 1.3, True, '上眼睑y'),
+#     (13, 1, 1.3, False, '下眼睑y'),
+#     (13, 1, 1.3, False, '下眼睑y'),
+# ]
+default_ajust_exp_text = """[
+    [11, 1, 1.5, true, "上眼睑y"],
+    [15, 1, 1.5, true, "上眼睑y"],
+    [13, 1, 1.5, false, "下眼睑y"],
+    [16, 1, 1.5, false, "下眼睑y"]
+]"""
+def adjust_exp_dict(action_data: dict, i_exp: int, i_loc: int, co: float, above_of_below_zero: bool):
+    if (action_data['exp'][0][i_exp][i_loc] > 0) == above_of_below_zero:
+        action_data['exp'][0][i_exp][i_loc] *= co 
+
+class AdjustExpByText:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "exp": ("EXP_DATA",),
+            "text": ("STRING", {"default": default_ajust_exp_text, "multiline": True}),
+        },
+        }
+
+    RETURN_TYPES = ("EXP_DATA",)
     RETURN_NAMES = ("exp",)
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, file_name, frame_cap, start_index, rotation, mouth, eyes):
-        with open(os.path.join(expa_data_dir, file_name + ".json"), 'r') as f:
-            file_data = json.load(f)
+    def run(self, exp: ExpressionSet, text):
+        exp_dict = exp.to_dict()
+        adjust_list = json.loads(text)
+        for adjust in adjust_list:
+            adjust_exp_dict(exp_dict, adjust[0], adjust[1], adjust[2], adjust[3])
 
-        if start_index >= len(file_data):
-            raise Exception('start_index to big!')
-
-        # 切片
-        if frame_cap == 0:
-            using_data = file_data[start_index:]
-        else:
-            using_data = file_data[start_index: start_index + frame_cap]
-
-        # exp微调
-        for action_data in using_data:
-            for j in range(3):
-                    action_data['rotation'][j] *= rotation
-
-            for i in [14, 17, 19, 20]:
-                for j in range(3):
-                    action_data['exp'][0][i][j] *= mouth
-
-            for i in [1, 2, 11, 13, 15, 16]:
-                for j in range(3):
-                    action_data['exp'][0][i][j] *= eyes
+        exp_new = ExpressionSet()
+        exp_new.from_dict(exp_dict)
         
-        return (using_data,)
+        return (exp_new,)
+
+class AdjustExpaByText:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "expa": ("EXPA_DATA",),
+            "text": ("STRING", {"default": default_ajust_exp_text, "multiline": True}),
+        },
+        }
+
+    RETURN_TYPES = ("EXPA_DATA",)
+    RETURN_NAMES = ("expa",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, expa, text):
+        expa_new = copy.deepcopy(expa)
+        adjust_list = json.loads(text)
+        for adjust in adjust_list:
+            for exp_dict in expa_new:
+                adjust_exp_dict(exp_dict, adjust[0], adjust[1], adjust[2], adjust[3])                
+        
+        return (expa_new,)
 
 class ExpressionVideoEditor:
     def __init__(self):
@@ -1165,6 +1313,9 @@ class ExpressionVideoEditor:
         return {
             "required": {
                 "src_images": ("IMAGE",),                
+                "src_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
+                "drive_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.5, "step": 0.1, "display": "number"}),
+                "drive0_remove_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
                 "rotate_pitch": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
                 "rotate_yaw": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
                 "rotate_roll": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
@@ -1183,7 +1334,7 @@ class ExpressionVideoEditor:
     OUTPUT_NODE = True
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, src_images, rotate_pitch, rotate_yaw, rotate_roll, crop_factor, driving_images=None, driving_action=None):
+    def run(self, src_images, src_ratio, drive_ratio, drive0_remove_ratio, rotate_pitch, rotate_yaw, rotate_roll, crop_factor, driving_images=None, driving_action=None):
         
         src_length = len(src_images)
         if id(src_images) != id(self.src_images) or self.crop_factor != crop_factor:
@@ -1231,7 +1382,8 @@ class ExpressionVideoEditor:
             i_src = i % src_length  # src_image 循环使用
             psi = self.psi_list[i_src]
             s_info = psi.x_s_info
-            s_es = ExpressionSet(erst=(s_info['kp'] + s_info['exp'], torch.Tensor([0, 0, 0]), s_info['scale'], s_info['t']))
+            s_es = ExpressionSet(erst=(s_info['kp'] + s_info['exp'] * src_ratio, 
+                                torch.Tensor([0, 0, 0]), s_info['scale'], s_info['t']))
 
             new_es = ExpressionSet(es = s_es)    
             
@@ -1244,7 +1396,7 @@ class ExpressionVideoEditor:
                 # retargeting(s_es.e, d_0_es.e, retargeting_eyes, (11, 13, 15, 16))
                 # retargeting(s_es.e, d_0_es.e, retargeting_mouth, (14, 17, 19, 20))
 
-            new_es.e += d_i_info['exp'] - d_0_es.e
+            new_es.e += d_i_info['exp'] * drive_ratio - d_0_es.e * drive0_remove_ratio
             new_es.r += d_i_r - d_0_es.r
             new_es.t += d_i_info['t'] - d_0_es.t
 
@@ -1271,6 +1423,73 @@ class ExpressionVideoEditor:
         out_imgs = torch.cat([pil2tensor(img_rgb) for img_rgb in out_list])
         return (out_imgs,)
 
+class LoadBLBRequestInfo:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {          
+            "name_project": ("STRING", {"default": '', "multiline": False}),
+            "clip_index": ("INT", {"default": 1, "min": 1, "max": 999, "step": 1}),
+            "dir_src_root": ("STRING", {"default": 'D:\\Blender workspace\\BLB', "multiline": False}),
+            "dir_project_root": ("STRING", {"default": 'F:\\My Work\\Breathing LookBook\\projects\\', "multiline": False}),
+            "fps": ("INT", {"default": 60, "min": 1, "max": 120, "step": 1}),
+            "force_reload": ("BOOLEAN", {"default": False, "label_on": "yes", "label_off": "no"}),
+        },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "INT", "INT", "FLOAT")
+    RETURN_NAMES = ("name_clip", "video_src", "drive_cap", "drive_start", "seek_seconds")
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+    file_path = ''
+    file_data = None
+    clip_index = -1
+    clip_info = None
+
+    def run(self, name_project: str, clip_index: int, dir_src_root: str, dir_project_root: str, fps: int, force_reload: bool):
+        file_reloaded = False
+
+        # 加载配置文件
+        path_request_info = os.path.join(dir_project_root,name_project, 'request_clips_info.json')
+        if path_request_info != self.file_path or force_reload:
+            if not os.path.exists(path_request_info):
+                raise Exception('[LoadBLBRequestInfoFile] wrong path file --> request_info.json')
+
+            with open(path_request_info, 'r') as f:
+                self.file_data = json.load(f)
+                file_reloaded = True
+
+            self.file_path = path_request_info
+
+        # 定位clip
+        if clip_index != self.clip_index or file_reloaded:
+            name_clip = 'clip_{:03}'.format(clip_index)
+            self.clip_info = None
+            
+            for info in self.file_data:
+                info: dict
+                if info['name'] == name_clip:
+                    self.clip_info = info.copy()
+                    break
+
+            if self.clip_info is None:
+                raise Exception('[LoadBLBRequestInfoFile]读取clip失败。path={}, clip_index={}'.format(
+                    self.file_path,
+                    clip_index
+                ))
+            
+            self.clip_index = clip_index
+
+        # src视频信息
+        name_vidoe = '{:03}.mp4'.format(clip_index)
+        path_video_src = os.path.join(dir_src_root, name_project, 'blender', name_clip, 'output', name_vidoe)
+
+        # drive信息
+        driver_cap = self.clip_info['length']
+        driver_start = self.clip_info['frame_start'] - 1
+        seek_seconds = 1.0 / fps * driver_start
+
+        return (name_clip, path_video_src, driver_cap, driver_start, seek_seconds)
+
 
 NODE_CLASS_MAPPINGS = {
     "AdvancedLivePortrait": AdvancedLivePortrait,
@@ -1284,6 +1503,10 @@ NODE_CLASS_MAPPINGS = {
     "ExtractExpAction:": ExtractExpAction,
     "LoadExpActionJson:": LoadExpActionJson,
     "ExpressionVideoEditor:": ExpressionVideoEditor,
+    "LoadSingleExpOfAction:": LoadSingleExpOfAction,
+    "LoadBLBRequestInfo": LoadBLBRequestInfo,
+    "AdjustExpByText": AdjustExpByText,
+    "AdjustExpaByText": AdjustExpaByText,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1296,4 +1519,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ExtractExpAction": "Extract Exp Action (PHM.luoq)",
     "LoadExpActionJson": "Load Exp Action (PHM.luoq)",
     "ExpressionVideoEditor": "Expression Video Editor (PHM.luoq)",
+    "LoadSingleExpOfAction": "Load Single Exp Of Action (PHM.luoq)",
+    "LoadBLBRequestInfo": "Load BLB Request Info (PHM.luoq)",
+    "AdjustExpByText": "Adjust Exp By Text (PHM.luoq)",
+    "AdjustExpaByText": "Adjust Expa By Text (PHM.luoq)",
 }
