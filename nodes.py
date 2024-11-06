@@ -681,6 +681,147 @@ class ExpData:
 
         return (es,)
 
+NAMES_EXP_BONE = [
+    '额头', # 0
+    '左眉头', # 1
+    '右眉头', # 2
+    '左腮骨', # 3
+    '右耳根', # 4
+    'root', # 5
+    '6', # 6
+    '右腮骨', # 7
+    '8', # 8
+    '9', # 9
+    '左耳根', # 10
+    '左眼珠', # 11
+    '12', # 12
+    '左眼袋', # 13
+    '右嘴角', # 14
+    '右眼珠', # 15
+    '右眼袋', # 16
+    '上嘴唇', # 17
+    '18', # 18
+    '下嘴唇', # 19
+    '左嘴角', # 20   
+]
+
+class ShowExpData:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":{  
+                "exp": ("EXP_DATA",),
+                "id1": ("INT", {"default": 1}),
+                "id2": ("INT", {"default": 2}),
+                "id3": ("INT", {"default": 11}),
+                "id4": ("INT", {"default": 15}),
+                "id5": ("INT", {"default": 13}),
+                "id6": ("INT", {"default": 16}),
+                "ndigits": ("INT", {"default": 5, "min": 1, "max": 10, "step":1 }),
+            },
+            "optional":{}
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, exp, id1, id2, id3, id4, id5, id6, ndigits):
+        es = ExpressionSet(es = exp)
+        lines = []
+        string_format = '\{3\}\\t\{0:.{0}f\}, \{1:.5f\}, \{2:.5f\}'
+
+        ids = [id1, id2, id3, id4, id5, id6]
+        for i in ids:
+            text_line = '{3}\t{0:.5f}, {1:.5f}, {2:.5f}'.format(
+                round(es.e[0, i, 0].item(), ndigits),
+                round(es.e[0, i, 1].item(), ndigits),
+                round(es.e[0, i, 2].item(), ndigits),
+                NAMES_EXP_BONE[i]
+            )
+            lines.append(text_line)
+
+        text = '\n'.join(lines)
+        return (text,)
+
+class EditExpData:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":{                
+                "id1": ("INT", {"default": 0, "min": -1, "max": 20}),
+                "x1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "y1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "z1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "id2": ("INT", {"default": 0, "min": -1, "max": 20}),
+                "x2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "y2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "z2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+            },
+            "optional":{"exp": ("EXP_DATA",),}
+        }
+
+    RETURN_TYPES = ("EXP_DATA",)
+    RETURN_NAMES = ("exp",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    @staticmethod
+    def edit_idx(exp: ExpressionSet, idx: int, x, y, z):
+        if idx == -1:
+            exp.r[0] += x
+            exp.r[1] += y
+            exp.r[2] += z
+        else:
+            exp.e[0, idx, 0] = x
+            exp.e[0, idx, 1] = y
+            exp.e[0, idx, 2] = z
+
+    def run(self, id1, x1, y1, z1, id2, x2, y2, z2, exp=None):
+        if exp is None:
+            es = ExpressionSet()
+        else:
+            es = ExpressionSet(es = exp)
+
+        self.edit_idx(es, id1, x1, y1, z1)
+        self.edit_idx(es, id2, x2, y2, z2)
+
+        return (es,)
+
+default_edit_exp_text = """[
+    [1, 0, -0.02, 0, "左眉头"],
+    [2, 0, -0.02, 0, "右眉头"]
+]"""
+
+class EditExpDataByText:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":{                
+                "text": ("STRING", {"default": default_edit_exp_text, "multiline": True}),
+            },
+            "optional":{"exp": ("EXP_DATA",),}
+        }
+
+    RETURN_TYPES = ("EXP_DATA",)
+    RETURN_NAMES = ("exp",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, text: str, exp=None):
+        if exp is None:
+            es = ExpressionSet()
+        else:
+            es = ExpressionSet(es = exp)
+
+        list_mod = json.loads(text)
+        if len(list_mod) < 1:
+            return (None,)
+
+        for mod in list_mod:
+            mod: list
+            EditExpData.edit_idx(es, mod[0], mod[1], mod[2], mod[3])        
+
+        return (es,)
+
 class PrintExpData:
     @classmethod
     def INPUT_TYPES(s):
@@ -710,6 +851,48 @@ class PrintExpData:
         sorted_list = sorted(cuted_list, reverse=True, key=lambda item: item[0])
         print(f"sorted_list: {[[item[2], round(float(item[1]),1)] for item in sorted_list]}")
         return (exp,)
+
+class EditExpaData:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":{
+                "expa": ("EXPA_DATA",),
+                "id1": ("INT", {"default": 0, "min": -1, "max": 20}),
+                "x1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "y1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "z1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "id2": ("INT", {"default": 0, "min": -1, "max": 20}),
+                "x2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "y2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "z2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+            },
+            "optional":{}
+        }
+
+    RETURN_TYPES = ("EXPA_DATA",)
+    RETURN_NAMES = ("expa",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    @staticmethod
+    def edit_id_pos(exp_dict, idx, x, y, z):
+        if idx == -1:
+            pos = exp_dict['rotation']
+        else:
+            pos = exp_dict['exp'][0][idx]
+
+        pos[0] += x
+        pos[1] += y
+        pos[2] += z
+
+    def run(self, expa, id1, x1, y1, z1, id2, x2, y2, z2):
+        expa_new = copy.deepcopy(expa)
+        
+        for exp_dict in expa_new:
+            self.edit_id_pos(exp_dict, id1, x1, y1, z1)
+            self.edit_id_pos(exp_dict, id2, x2, y2, z2)
+
+        return (expa_new,)
 
 class Command:
     def __init__(self, es, change, keep):
@@ -1050,6 +1233,43 @@ class ExpressionEditor:
         return {"ui": {"images": results}, "result": (out_img, new_editor_link, es)}
 
 # ========== 以下为 luoq 新增 =================
+class ExtractExp:
+
+    @classmethod
+    def INPUT_TYPES(s):
+
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            },
+            "optional": {
+            },
+        }
+
+    RETURN_TYPES = ("EXP_DATA",)
+    RETURN_NAMES = ("exp",)
+    FUNCTION = "run"
+
+    OUTPUT_NODE = True
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, image):
+
+        pipeline = g_engine.get_pipeline()
+                
+        es = ExpressionSet()        
+        d_image_np = (image * 255).byte().numpy()
+        d_face = g_engine.crop_face(d_image_np[0], 1.7)
+        i_d = g_engine.prepare_src_image(d_face)
+        ski = pipeline.get_kp_info(i_d)
+        ski['exp'][0, 5, 0] = 0
+        ski['exp'][0, 5, 1] = 0
+
+        es.e += ski['exp']
+        es.r = torch.Tensor([ski['pitch'], ski['yaw'], ski['roll']])
+
+        return (es, )
+
 expa_data_dir = os.path.join(folder_paths.output_directory, "expa_data")
 if os.path.isdir(expa_data_dir) == False:
     os.mkdir(expa_data_dir)
@@ -1079,13 +1299,10 @@ class ExtractExpAction:
 
     def run(self, driving_images, file_name):  
 
-        if id(driving_images) != id(self.driving_images):
-            self.driving_images = driving_images
-
         pipeline = g_engine.get_pipeline()
 
         out = []
-        for sample_image in self.driving_images:            
+        for sample_image in driving_images:            
             drive = ExpressionSet()
             
             d_image_np = (sample_image * 255).byte().numpy()
@@ -1148,8 +1365,9 @@ class LoadExpActionJson:
             "face_edge": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
             "mouth": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
             "eyes": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
-            "other": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
-            "force_reload": ("BOOLEAN", {"default": False, "label_on": "yes", "label_off": "no"}),
+            "other": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),            
+            "every_nth": ("INT", {"default": 1, "min": 1, "step": 1}),
+            "force_reload": ("BOOLEAN", {"default": False, "label_on": "yes", "label_off": "no"}),            
         },
         }
 
@@ -1161,7 +1379,7 @@ class LoadExpActionJson:
     file_data = None
 
     def run(self, file_path, frame_cap, start_index, rotate_pitch, rotate_yaw, rotate_roll, face_edge, 
-            mouth, eyes, other, force_reload):
+            mouth, eyes, other, every_nth, force_reload):
         if file_path != self.file_path or force_reload:
             if not os.path.exists(file_path):
                 raise Exception('[LoadExpActionJson] wrong path file --> expa')
@@ -1174,9 +1392,9 @@ class LoadExpActionJson:
 
         # 切片
         if frame_cap == 0:
-            using_data = self.file_data[start_index:]
+            using_data = self.file_data[start_index : : every_nth]
         else:
-            using_data = self.file_data[start_index: start_index + frame_cap]
+            using_data = self.file_data[start_index : start_index + frame_cap : every_nth]
 
         # exp微调
         for action_data in using_data:
@@ -1313,18 +1531,18 @@ class ExpressionVideoEditor:
         return {
             "required": {
                 "src_images": ("IMAGE",),                
-                "src_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
-                "drive_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.5, "step": 0.1, "display": "number"}),
-                "drive0_remove_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
-                "rotate_pitch": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
-                "rotate_yaw": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
-                "rotate_roll": ("FLOAT", {"default": 0, "min": -20, "max": 20, "step": 0.5, "display": "number"}),
+                "src_exp": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
+                "drive_exp": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.5, "step": 0.1, "display": "number"}),
+                "retgt_brows": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
+                "retgt_eyes": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
+                "retgt_mouth": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
                 "crop_factor": ("FLOAT", {"default": crop_factor_default,
                                           "min": crop_factor_min, "max": crop_factor_max, "step": 0.1}),                
             },
             "optional": {                
                 "driving_images": ("IMAGE",),
                 "driving_action": ("EXPA_DATA",),
+                "add_exp": ("EXP_DATA",),
             },
         }
 
@@ -1334,7 +1552,8 @@ class ExpressionVideoEditor:
     OUTPUT_NODE = True
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, src_images, src_ratio, drive_ratio, drive0_remove_ratio, rotate_pitch, rotate_yaw, rotate_roll, crop_factor, driving_images=None, driving_action=None):
+    def run(self, src_images, src_exp, drive_exp, retgt_brows, retgt_eyes, retgt_mouth, 
+            crop_factor, driving_images=None, driving_action=None, add_exp=None):
         
         src_length = len(src_images)
         if id(src_images) != id(self.src_images) or self.crop_factor != crop_factor:
@@ -1382,7 +1601,7 @@ class ExpressionVideoEditor:
             i_src = i % src_length  # src_image 循环使用
             psi = self.psi_list[i_src]
             s_info = psi.x_s_info
-            s_es = ExpressionSet(erst=(s_info['kp'] + s_info['exp'] * src_ratio, 
+            s_es = ExpressionSet(erst=(s_info['kp'] + s_info['exp'] * src_exp, 
                                 torch.Tensor([0, 0, 0]), s_info['scale'], s_info['t']))
 
             new_es = ExpressionSet(es = s_es)    
@@ -1393,17 +1612,25 @@ class ExpressionVideoEditor:
             if d_0_es is None:
                 d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
 
-                # retargeting(s_es.e, d_0_es.e, retargeting_eyes, (11, 13, 15, 16))
-                # retargeting(s_es.e, d_0_es.e, retargeting_mouth, (14, 17, 19, 20))
+            # 重定向，即：某组骨骼，使用 drive第一帧的参数
+            if retgt_brows > 0:
+                retargeting(new_es.e, d_0_es.e, retgt_brows, (1, 2))
+            if retgt_eyes > 0:
+                retargeting(new_es.e, d_0_es.e, retgt_eyes, (11, 13, 15, 16))
+            if retgt_mouth > 0:
+                retargeting(new_es.e, d_0_es.e, retgt_mouth, (14, 17, 19, 20))
 
-            new_es.e += d_i_info['exp'] * drive_ratio - d_0_es.e * drive0_remove_ratio
+            new_es.e += d_i_info['exp'] * drive_exp - d_0_es.e * drive_exp
             new_es.r += d_i_r - d_0_es.r
             new_es.t += d_i_info['t'] - d_0_es.t
 
+            if add_exp:
+                new_es.add(add_exp)
+
             r_new = get_rotation_matrix(
-                s_info['pitch'] + new_es.r[0] + rotate_pitch,
-                s_info['yaw'] + new_es.r[1] + rotate_yaw, 
-                s_info['roll'] + new_es.r[2] + rotate_roll
+                s_info['pitch'] + new_es.r[0],
+                s_info['yaw'] + new_es.r[1], 
+                s_info['roll'] + new_es.r[2]
             )
             d_new = new_es.s * (new_es.e @ r_new) + new_es.t
             d_new = pipeline.stitching(psi.x_s_user, d_new)
@@ -1499,8 +1726,13 @@ NODE_CLASS_MAPPINGS = {
     "LoadExpDataString": LoadExpDataString,
     "SaveExpData": SaveExpData,
     "ExpData": ExpData,
+    "ShowExpData": ShowExpData,
+    "EditExpData": EditExpData,
+    "EditExpDataByText": EditExpDataByText,
+    # "EditExpaData": EditExpaData,   # 改了半天没用，融不进动图
     "PrintExpData:": PrintExpData,
     "ExtractExpAction:": ExtractExpAction,
+    "ExtractExp:": ExtractExp,
     "LoadExpActionJson:": LoadExpActionJson,
     "ExpressionVideoEditor:": ExpressionVideoEditor,
     "LoadSingleExpOfAction:": LoadSingleExpOfAction,
@@ -1513,14 +1745,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AdvancedLivePortrait": "Advanced Live Portrait (PHM)",
     "ExpressionEditor": "Expression Editor (PHM)",
     "LoadExpData": "Load Exp Data (PHM)",
-    "LoadExpDataJson": "Load Exp Data.json (PHM.luoq)",
-    "LoadExpDataString": "Load Exp Data.string (PHM.luoq)",
+    "LoadExpDataJson": "Load Exp Data Json",
+    "LoadExpDataString": "Load Exp Data String",
     "SaveExpData": "Save Exp Data (PHM)",
-    "ExtractExpAction": "Extract Exp Action (PHM.luoq)",
-    "LoadExpActionJson": "Load Exp Action (PHM.luoq)",
-    "ExpressionVideoEditor": "Expression Video Editor (PHM.luoq)",
-    "LoadSingleExpOfAction": "Load Single Exp Of Action (PHM.luoq)",
-    "LoadBLBRequestInfo": "Load BLB Request Info (PHM.luoq)",
-    "AdjustExpByText": "Adjust Exp By Text (PHM.luoq)",
-    "AdjustExpaByText": "Adjust Expa By Text (PHM.luoq)",
+    "ExtractExpAction": "Extract Exp Action",
+    "LoadExpActionJson": "Load Exp Action",
+    "ExpressionVideoEditor": "Expression Video Editor",
+    "LoadSingleExpOfAction": "Load Single Exp Of Action",
+    "LoadBLBRequestInfo": "Load BLB Request Info",
+    "AdjustExpByText": "Adjust Exp By Text",
+    "AdjustExpaByText": "Adjust Expa By Text",
 }
