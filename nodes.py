@@ -747,15 +747,16 @@ class ShowExpData:
 class EditExpData:
     @classmethod
     def INPUT_TYPES(s):
+        step = 0.0001
         return {"required":{                
                 "id1": ("INT", {"default": 0, "min": -1, "max": 20}),
-                "x1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
-                "y1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
-                "z1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "x1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "y1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "z1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
                 "id2": ("INT", {"default": 0, "min": -1, "max": 20}),
-                "x2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
-                "y2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
-                "z2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": 0.0001}),
+                "x2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "y2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "z2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
             },
             "optional":{"exp": ("EXP_DATA",),}
         }
@@ -786,6 +787,23 @@ class EditExpData:
         self.edit_idx(es, id2, x2, y2, z2)
 
         return (es,)
+
+class EditExpDataRough(EditExpData):
+    @classmethod
+    def INPUT_TYPES(s):
+        step = 0.01
+        return {"required":{                
+                "id1": ("INT", {"default": 0, "min": -1, "max": 20}),
+                "x1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "y1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "z1": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "id2": ("INT", {"default": 0, "min": -1, "max": 20}),
+                "x2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "y2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+                "z2": ("FLOAT", {"default": 0, "min": -90, "max": 90, "step": step}),
+            },
+            "optional":{"exp": ("EXP_DATA",),}
+        }
 
 default_edit_exp_text = """[
     [1, 0, -0.02, 0, "左眉头"],
@@ -1545,7 +1563,9 @@ class ExpressionVideoEditor:
                 "retgt_eyes": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
                 "retgt_mouth": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1, "display": "number"}),
                 "crop_factor": ("FLOAT", {"default": crop_factor_default,
-                                          "min": crop_factor_min, "max": crop_factor_max, "step": 0.1}),                
+                                          "min": crop_factor_min, "max": crop_factor_max, "step": 0.1}),
+                "single_mode": ("BOOLEAN", {"default": False, "label_on": "sinlge", "label_off": "muti"}),
+                "single_index": ("INT", {"default": 1, "min": 0, "display": "number"}),
             },
             "optional": {                
                 "driving_images": ("IMAGE",),
@@ -1555,14 +1575,14 @@ class ExpressionVideoEditor:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("images",)
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_NAMES = ("images", "single_image")
     FUNCTION = "run"
     OUTPUT_NODE = True
     CATEGORY = "AdvancedLivePortrait"
 
     def run(self, src_images, src_exp, drive_exp, retgt_brows, retgt_eyes, retgt_mouth, 
-            crop_factor, driving_images=None, driving_action=None, 
+            crop_factor, single_mode, single_index, driving_images=None, driving_action=None, 
             exp_neutral: ExpressionSet=None, add_exp: ExpressionSet=None):
         
         src_length = len(src_images)
@@ -1609,7 +1629,14 @@ class ExpressionVideoEditor:
 
         psi = None
         pipeline = g_engine.get_pipeline()
-        for i in range(final_length):
+
+        # 不同模式，使用不同的 i 迭代器
+        if single_mode:
+            iterator = iter([0, single_index])
+        else:
+            iterator = range(final_length)
+
+        for i in iterator:
             
             i_src = i % src_length  # src_image 循环使用
             psi = self.psi_list[i_src]
@@ -1666,7 +1693,9 @@ class ExpressionVideoEditor:
         if len(out_list) == 0: return (None,)
 
         out_imgs = torch.cat([pil2tensor(img_rgb) for img_rgb in out_list])
-        return (out_imgs,)
+        last_img = pil2tensor(out_list[-1])
+
+        return (out_imgs, last_img)
 
 class LoadBLBRequestInfo:
     @classmethod
@@ -1748,6 +1777,7 @@ NODE_CLASS_MAPPINGS = {
     "ExpData": ExpData,
     "ShowExpData": ShowExpData,
     "EditExpData": EditExpData,
+    "EditExpDataRough": EditExpDataRough,
     "EditExpDataByText": EditExpDataByText,
     # "EditExpaData": EditExpaData,   # 改了半天没用，融不进动图
     "PrintExpData:": PrintExpData,
