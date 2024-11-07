@@ -1542,6 +1542,7 @@ class ExpressionVideoEditor:
             "optional": {                
                 "driving_images": ("IMAGE",),
                 "driving_action": ("EXPA_DATA",),
+                "exp_neutral": ("EXP_DATA",),
                 "add_exp": ("EXP_DATA",),
             },
         }
@@ -1553,7 +1554,8 @@ class ExpressionVideoEditor:
     CATEGORY = "AdvancedLivePortrait"
 
     def run(self, src_images, src_exp, drive_exp, retgt_brows, retgt_eyes, retgt_mouth, 
-            crop_factor, driving_images=None, driving_action=None, add_exp=None):
+            crop_factor, driving_images=None, driving_action=None, 
+            exp_neutral: ExpressionSet=None, add_exp: ExpressionSet=None):
         
         src_length = len(src_images)
         if id(src_images) != id(self.src_images) or self.crop_factor != crop_factor:
@@ -1610,7 +1612,11 @@ class ExpressionVideoEditor:
             d_i_r = torch.Tensor([d_i_info['pitch'], d_i_info['yaw'], d_i_info['roll']])#.float().to(device="cuda:0")
 
             if d_0_es is None:
-                d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
+                if exp_neutral:
+                    # 表情部分，以neutral为准
+                    d_0_es = ExpressionSet(erst = (exp_neutral.e, d_i_r, d_i_info['scale'], d_i_info['t']))
+                else:
+                    d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
 
             # 重定向，即：某组骨骼，使用 drive第一帧的参数
             if retgt_brows > 0:
