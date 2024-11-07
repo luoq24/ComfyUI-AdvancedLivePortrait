@@ -1375,8 +1375,10 @@ class LoadExpActionJson:
     RETURN_NAMES = ("expa", "frame_count")
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
-    file_path = ''
-    file_data = None
+
+    def __init__(self) -> None:
+        self.file_path = ''
+        self.file_data = None
 
     def run(self, file_path, frame_cap, start_index, rotate_pitch, rotate_yaw, rotate_roll, face_edge, 
             mouth, eyes, other, every_nth, force_reload):
@@ -1386,6 +1388,7 @@ class LoadExpActionJson:
 
             with open(file_path, 'r') as f:
                 self.file_data = json.load(f)
+            self.file_path = file_path
 
         if start_index >= len(self.file_data):
             raise Exception('start_index too big!')
@@ -1426,8 +1429,10 @@ class LoadSingleExpOfAction:
     RETURN_NAMES = ("exp", "exp_string", "frame_count")
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
-    file_path = ''
-    file_data = None
+
+    def __init__(self) -> None:
+        self.file_path = ''
+        self.file_data = None
 
     def run(self, file_path, frame_index, rotate_pitch, rotate_yaw, rotate_roll, face_edge, mouth, 
             eyes, other, force_reload):
@@ -1437,6 +1442,8 @@ class LoadSingleExpOfAction:
 
             with open(file_path, 'r') as f:
                 self.file_data = json.load(f)
+
+            self.file_path = file_path
 
         if frame_index >= len(self.file_data):
             frame_index = len(self.file_data) - 1
@@ -1523,7 +1530,8 @@ class ExpressionVideoEditor:
     def __init__(self):
         self.src_images = None
         self.driving_images = None
-        self.pbar = comfy.utils.ProgressBar(1)
+        self.driving_action = None
+        self.pbar = comfy.utils.ProgressBar(1)        
         self.crop_factor = None
 
     @classmethod
@@ -1570,22 +1578,25 @@ class ExpressionVideoEditor:
         if driving_images is not None:
             if id(driving_images) != id(self.driving_images):
                 self.driving_images = driving_images
+                self.driving_action = None
                 self.driving_values = g_engine.prepare_driving_video(driving_images)
             driving_length = len(self.driving_values)
         elif driving_action is not None:
-            self.driving_images = None
-            self.driving_values = []
-            for exp_dict in driving_action:
-                kp_info = dict()
-                e_np = np.array(exp_dict['exp'], dtype=np.float32)
-                t_np = np.array(exp_dict['t'], dtype=np.float32)
-                kp_info['exp'] = torch.from_numpy(e_np).float().to(get_device())
-                kp_info['pitch'] = exp_dict['rotation'][0]
-                kp_info['yaw'] = exp_dict['rotation'][1]
-                kp_info['roll'] = exp_dict['rotation'][2]
-                kp_info['scale'] = exp_dict['scale']
-                kp_info['t'] = torch.from_numpy(t_np).float().to(get_device())
-                self.driving_values.append(kp_info)
+            if id(driving_action) != id(self.driving_action):
+                self.driving_images = None
+                self.driving_action = driving_action
+                self.driving_values = []
+                for exp_dict in driving_action:
+                    kp_info = dict()
+                    e_np = np.array(exp_dict['exp'], dtype=np.float32)
+                    t_np = np.array(exp_dict['t'], dtype=np.float32)
+                    kp_info['exp'] = torch.from_numpy(e_np).float().to(get_device())
+                    kp_info['pitch'] = exp_dict['rotation'][0]
+                    kp_info['yaw'] = exp_dict['rotation'][1]
+                    kp_info['roll'] = exp_dict['rotation'][2]
+                    kp_info['scale'] = exp_dict['scale']
+                    kp_info['t'] = torch.from_numpy(t_np).float().to(get_device())
+                    self.driving_values.append(kp_info)
             driving_length = len(self.driving_values)
 
         if src_length > driving_length:
@@ -1611,12 +1622,13 @@ class ExpressionVideoEditor:
             d_i_info = self.driving_values[i]
             d_i_r = torch.Tensor([d_i_info['pitch'], d_i_info['yaw'], d_i_info['roll']])#.float().to(device="cuda:0")
 
-            if d_0_es is None:
-                if exp_neutral:
+            if d_0_es is None:                
+                # if exp_neutral:
                     # 表情部分，以neutral为准
-                    d_0_es = ExpressionSet(erst = (exp_neutral.e, d_i_r, d_i_info['scale'], d_i_info['t']))
-                else:
-                    d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
+                #     d_0_es = ExpressionSet(erst = (exp_neutral.e, d_i_r, d_i_info['scale'], d_i_info['t']))
+                # else:
+                #     d_0_es = ExpressionSet(erst = (d_i_info['exp'], d_i_r, d_i_info['scale'], d_i_info['t']))
+                d_0_es = ExpressionSet(es=exp_neutral)
 
             # 重定向，即：某组骨骼，使用 drive第一帧的参数
             if retgt_brows > 0:
@@ -1673,10 +1685,12 @@ class LoadBLBRequestInfo:
     RETURN_NAMES = ("name_clip", "video_src", "drive_cap", "drive_start", "seek_seconds")
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
-    file_path = ''
-    file_data = None
-    clip_index = -1
-    clip_info = None
+
+    def __init__(self) -> None:
+        self.file_path = ''
+        self.file_data = None
+        self.clip_index = -1
+        self.clip_info = None
 
     def run(self, name_project: str, clip_index: int, dir_src_root: str, dir_project_root: str, fps: int, force_reload: bool):
         file_reloaded = False
