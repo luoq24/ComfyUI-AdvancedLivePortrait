@@ -831,14 +831,14 @@ class EditExpDataByText:
     CATEGORY = "AdvancedLivePortrait"
 
     def run(self, text: str, exp=None):
+        list_mod = json.loads(text)
+        if len(list_mod) < 1:
+            return (None,)
+
         if exp is None:
             es = ExpressionSet()
         else:
             es = ExpressionSet(es = exp)
-
-        list_mod = json.loads(text)
-        if len(list_mod) < 1:
-            return (None,)
 
         for mod in list_mod:
             mod: list
@@ -1542,8 +1542,11 @@ class AdjustExpaByText:
     CATEGORY = "AdvancedLivePortrait"
 
     def run(self, expa, text):
-        expa_new = copy.deepcopy(expa)
         adjust_list = json.loads(text)
+        if len(adjust_list) < 1:
+            return(expa, )
+
+        expa_new = copy.deepcopy(expa)
         for adjust in adjust_list:
             for exp_dict in expa_new:
                 adjust_exp_dict(exp_dict, adjust[0], adjust[1], adjust[2], adjust[3])                
