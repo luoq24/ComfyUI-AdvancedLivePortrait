@@ -598,10 +598,8 @@ class LoadExpData:
 class LoadExpDataJson:
     @classmethod
     def INPUT_TYPES(s):
-        file_list = [os.path.splitext(file)[0] for file in os.listdir(exp_data_dir) if file.endswith('.json')]
         return {"required": {
-            "file_name": (sorted(file_list, key=str.lower),),
-            "ratio": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
+            "file_path": ("STRING", {"default": '', "multiline": False}),
         },
         }
 
@@ -610,14 +608,22 @@ class LoadExpDataJson:
     FUNCTION = "run"
     CATEGORY = "AdvancedLivePortrait"
 
-    def run(self, file_name, ratio):
-        with open(os.path.join(exp_data_dir, file_name + ".json"), 'r') as f:
-            file_data = json.load(f)
-        es = ExpressionSet()
-        es.from_dict(file_data)
+    def __init__(self) -> None:
+        self.file_path = ''
+        self.es = None
 
-        es.mul(ratio)
-        return (es,)
+    def run(self, file_path):
+        if self.file_path != file_path:
+
+            with open(os.path.join(exp_data_dir, file_path), 'r') as f:
+                file_data = json.load(f)
+
+            self.es = ExpressionSet()
+            self.es.from_dict(file_data)
+
+            self.file_path = file_path
+
+        return (self.es,)
 
 class LoadExpDataString:
     @classmethod
