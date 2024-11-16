@@ -1422,6 +1422,7 @@ class LoadExpActionJson:
             using_data = self.file_data[start_index : : every_nth]
         else:
             using_data = self.file_data[start_index : start_index + frame_cap : every_nth]
+        using_data = copy.deepcopy(using_data)  # 有必要，不然微调会动到原始数据
 
         # exp微调
         for action_data in using_data:
