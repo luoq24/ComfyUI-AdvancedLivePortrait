@@ -1629,8 +1629,8 @@ class ExpressionVideoEditor:
                     self.driving_values.append(kp_info)
             driving_length = len(self.driving_values)
 
-        if src_length > driving_length:
-            raise Exception('src_images count < driving count, excute failed!')
+        # if src_length > driving_length:
+        #     raise Exception('src_images count < driving count, excute failed!')
 
         final_length = driving_length
 
