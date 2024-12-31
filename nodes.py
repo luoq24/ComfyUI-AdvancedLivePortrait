@@ -1593,6 +1593,7 @@ class ExpressionVideoEditor:
                                           "min": crop_factor_min, "max": crop_factor_max, "step": 0.1}),
                 "single_mode": ("BOOLEAN", {"default": False, "label_on": "sinlge", "label_off": "muti"}),
                 "single_index": ("INT", {"default": 1, "min": 0, "display": "number"}),
+                "tracking": ("BOOLEAN", {"default": False, }),
             },
             "optional": {                
                 "driving_images": ("IMAGE",),
@@ -1609,7 +1610,7 @@ class ExpressionVideoEditor:
     CATEGORY = "AdvancedLivePortrait"
 
     def run(self, src_images, src_exp, drive_exp, retgt_brows, retgt_eyes, retgt_mouth, 
-            crop_factor, single_mode, single_index, driving_images=None, driving_action=None, 
+            crop_factor, single_mode, single_index, tracking, driving_images=None, driving_action=None, 
             exp_neutral: ExpressionSet=None, add_exp: ExpressionSet=None):
         
         src_length = len(src_images)
@@ -1617,7 +1618,8 @@ class ExpressionVideoEditor:
             self.crop_factor = crop_factor
             self.src_images = src_images
             if 1 < src_length:
-                self.psi_list = g_engine.prepare_source(src_images, crop_factor, True)
+                # 2025年1月1日04:18:23，打开第4参数tracking
+                self.psi_list = g_engine.prepare_source(src_images, crop_factor, True, tracking)
             else:
                 self.psi_list = [g_engine.prepare_source(src_images, crop_factor)]
 
