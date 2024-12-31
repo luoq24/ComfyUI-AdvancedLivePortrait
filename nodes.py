@@ -628,7 +628,6 @@ class LoadExpDataJson:
 class LoadExpDataString:
     @classmethod
     def INPUT_TYPES(s):
-        file_list = [os.path.splitext(file)[0] for file in os.listdir(exp_data_dir) if file.endswith('.json')]
         return {"required": {
             "text": ("STRING", {"default": '', "multiline": True}),
             "ratio": ("FLOAT", {"default": 1, "min": 0, "max": 1, "step": 0.01}),
@@ -647,6 +646,24 @@ class LoadExpDataString:
 
         es.mul(ratio)
         return (es,)
+
+class LoadExpDataActionString:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "text": ("STRING", {"default": '', "multiline": True}),
+        },
+        }
+
+    RETURN_TYPES = ("EXPA_DATA",)
+    RETURN_NAMES = ("expa",)
+    FUNCTION = "run"
+    CATEGORY = "AdvancedLivePortrait"
+
+    def run(self, text):        
+        text_data = json.loads(text)
+
+        return (text_data,)
 
 class ExpData:
     @classmethod
@@ -1783,6 +1800,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadExpData": LoadExpData,
     "LoadExpDataJson": LoadExpDataJson,
     "LoadExpDataString": LoadExpDataString,
+    "LoadExpDataActionString": LoadExpDataActionString,
     "SaveExpData": SaveExpData,
     "ExpData": ExpData,
     "ShowExpData": ShowExpData,
@@ -1807,6 +1825,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadExpData": "Load Exp Data (PHM)",
     "LoadExpDataJson": "Load Exp Data Json",
     "LoadExpDataString": "Load Exp Data String",
+    "LoadExpDataActionString": "Load Exp Data Action String",
     "SaveExpData": "Save Exp Data (PHM)",
     "ExtractExpAction": "Extract Exp Action",
     "LoadExpActionJson": "Load Exp Action",
